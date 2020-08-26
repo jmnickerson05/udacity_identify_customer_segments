@@ -16,29 +16,56 @@ from sklearn.decomposition import PCA
 import inspect
 from IPython.display import display as idisplay
 # import sys, traceback
+from pprint import pprint
+%matplotlib inline
 
-display = lambda df : idisplay((df._to_pandas() if 'modin.pandas' in str(type(azdias)) else df))
+display = lambda df: idisplay((df._to_pandas() if 'modin.pandas' in str(type(azdias)) else df))
 warnings.filterwarnings("ignore")
 pd.set_option("display.max_rows", None, "display.max_columns", None)
 
 azdias = pd.read_csv('Udacity_AZDIAS_Subset.csv', sep=';')
 
+
 class KMSegmenter:
     def __init__(self, df):
-        self.feat_info = pd.read_csv('AZDIAS_Feature_Summary.csv', sep=';')
+        self.feat_info = self.__set_feat_info()
         self.pipe = self.__default_pipe(df)
 
     def __default_pipe(self, df):
         return Pipeline(steps=[('prep', self.scale_features(df)), ('pca', PCA()), ('km', KMeans())])
 
+    def __set_feat_info(self):
+        return pd.read_csv('AZDIAS_Feature_Summary.csv', sep=';')
+
+    def categorize_binary_features(self, cleaned_df):
+        """
+        NOTE: If the dataframe hasn't been scrubbed of encoded "nulls"
+        then this will miscategorize binary variables.
+        """
+        self.feat_info.loc[self.feat_info.attribute.isin(
+            [c for c in list(cleaned_df) if cleaned_df[c].nunique() == 2]), 'type'] = 'binary'
+
+    def cols_by_type(self, type_name, subset_of_columns=None):
+        if not subset_of_columns:
+            cols = self.feat_info.attribute.tolist()
+        else:
+            cols = subset_of_columns
+
+        return [col for col in self.feat_info[self.feat_info.type == type_name].attribute.tolist()
+            if col in cols]
+
+    def print_types(self):
+        sep = '*' * 15
+        pprint({f'{sep} << {t} >> {sep}': self.cols_by_type(t) for t in self.feat_info.type.unique()})
+
     def clean_data(self, df):
         """
-		Perform feature trimming, re-encoding, and engineering for demographics
-		data
+        Perform feature trimming, re-encoding, and engineering for demographics data
 
-		INPUT: Demographics DataFrame
-		OUTPUT: Trimmed and cleaned demographics DataFrame
-		"""
+        INPUT: Demographics DataFrame
+        OUTPUT: Trimmed and cleaned demographics DataFrame
+        """
+
         # Put in code here to execute all main cleaning steps:
         # convert missing value codes into NaNs, ...
 
@@ -70,7 +97,7 @@ class KMSegmenter:
 
         remaining_cols = df.columns
         self.perc_missing = pd.concat([perc_missing_before_clean,
-                                  perc_missing_after_clean], axis=1).reset_index()
+                                       perc_missing_after_clean], axis=1).reset_index()
         self.perc_missing.columns = ['Attributes', 'Missing Before', 'Missing After']
         self.perc_missing['Dropped'] = self.perc_missing.Attributes.apply(
             lambda x: False if x in remaining_cols else True
@@ -92,13 +119,11 @@ class KMSegmenter:
         df = df.dropna()
         df = df._to_pandas() if 'modin.pandas' in str(type(azdias)) else df
 
-        # TODO -- make new ColumnTransformer Object
-        # define transformers
-        cols_by_type = lambda x: [c for
-                                  c in self.feat_info[self.feat_info.type == x].attribute.tolist()
-                                  if c in list(df)]
+        # cols_by_type = lambda x: [c for
+        #                           c in self.feat_info[self.feat_info.type == x].attribute.tolist()
+        #                           if c in list(df)]
 
-        nums, ordinal = cols_by_type('numerical'), cols_by_type('ordinal')
+        nums, ordinal = self.cols_by_type('numerical', list(df)), self.cols_by_type('ordinal', list(df))
 
         scaler = ColumnTransformer(
             transformers=[
@@ -114,12 +139,13 @@ class KMSegmenter:
         return scaler
 
     def grid_search(self, df, show_only=True):
-        self.pipe.fit(df)
+        pipe = self.__default_pipe(df)
+        pipe.fit(df)
         param_grid = {
             'pca__n_components': [5, 15, 30, 45, 64],
             "km__n_clusters": range(2, 11),
         }
-        search = GridSearchCV(self.pipe, param_grid, n_jobs=-1)
+        search = GridSearchCV(pipe, param_grid, n_jobs=-1)
         search.fit(df)
         print('\n', "Best parameter (CV score=%0.3f):" % search.best_score_)
         print('\n', search.best_params_)
@@ -139,8 +165,9 @@ class KMSegmenter:
         return Pipeline(steps=[('prep', self.transformer), ('pca', pca), ('km', km)]).fit(df)
 
 
-# magic word for producing visualizations in notebook
-%matplotlib inline
+print_src = lambda method_name: print(inspect.getsource(
+    {name: data for name, data in inspect.getmembers(KMSegmenter)}[method_name])
+)
 
 '''
 Import note: The classroom currently uses sklearn version 0.19.
