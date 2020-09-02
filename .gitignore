@@ -1,3 +1,4 @@
+/scratch/*
 *.pkl
 .ipynb_checkpoints/*
 *.csv
