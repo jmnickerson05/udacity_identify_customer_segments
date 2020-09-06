@@ -1,3 +1,4 @@
+__pycache__/*
 /scratch/*
 *.pkl
 .ipynb_checkpoints/*
